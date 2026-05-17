@@ -253,3 +253,9 @@ The platform is built and validated. Core ingestion paths, OpenSearch indexing, 
   - Markdown local link check passed.
   - Documentation content checks passed for stdout, `tenant_id`, connector failure, cron failure, business investigation, `diagnostic_ref`, `Logging Observability Overview`, and `Integration Intake Checklist`.
   - `docker.exe compose ps --status running` showed Kafka, MinIO, OpenSearch, OpenSearch Dashboards, Vector ingest, and Vector processor running healthy.
+
+## 2026-05-17 README license summary update
+
+- Read `AI-Instructions.md`, `current-status.md`, `output.txt`, and the top of `README.md` before changing files.
+- Added an AGPLv3 license-aware project summary immediately under the README title for public repository presentation.
+- Updated `current-status.md` to record the README summary change.
