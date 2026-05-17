@@ -63,7 +63,26 @@ docker exec ingestion-minio mc find local/logs-archive-local
 
 Confirm the bearer token matches `VECTOR_HTTP_TOKEN` in `.env`.
 
+The local token is configured by you. It is not retrieved from Vector, OpenSearch, Kafka, or MinIO.
+
+Check it with:
+
+```bash
+rg VECTOR_HTTP_TOKEN .env
+```
+
+Then send:
+
+```text
+Authorization: Bearer <that value>
+```
+
+If you changed `VECTOR_HTTP_TOKEN`, recreate the ingest container so Vector reloads the environment:
+
+```bash
+docker compose up -d --force-recreate vector-ingest
+```
+
 ## Diagnostic Copy Fails on WSL
 
 `scripts/generate-diagnostic.sh` converts WSL paths to Windows paths when using `docker.exe compose`. If copy errors return `GetFileAttributesEx`, confirm `wslpath` exists and run from the repository path under `/mnt/...`.
-

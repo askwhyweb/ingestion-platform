@@ -259,3 +259,21 @@ The platform is built and validated. Core ingestion paths, OpenSearch indexing, 
 - Read `AI-Instructions.md`, `current-status.md`, `output.txt`, and the top of `README.md` before changing files.
 - Added an AGPLv3 license-aware project summary immediately under the README title for public repository presentation.
 - Updated `current-status.md` to record the README summary change.
+
+## 2026-05-17 HTTP bearer token documentation fix
+
+- Read `AI-Instructions.md`, `current-status.md`, `output.txt`, README token references, setup docs, ingestion docs, security docs, troubleshooting docs, and `.env.example`.
+- User reported the documentation missed how to obtain `change-me-local-token`.
+- Clarified that `change-me-local-token` is not obtained from Vector, OpenSearch, Docker, Kafka, or MinIO. It is the local development value of `VECTOR_HTTP_TOKEN` after copying `.env.example` to `.env`.
+- Updated `README.md` with a dedicated HTTP bearer token section:
+  - where the token comes from
+  - how to read it from `.env`
+  - how clients send it as `Authorization: Bearer <token>`
+  - how to generate a replacement with `openssl rand -hex 32`
+  - restart requirement after changing the token
+- Updated `docs/02-setup.md`, `docs/03-ingestion-integrations.md`, `docs/06-security-firewall-and-intake.md`, and `docs/10-troubleshooting.md` with matching guidance.
+- Added a clarifying comment to `.env.example` above `VECTOR_HTTP_TOKEN`.
+- Validation:
+  - `rg -n "HTTP Bearer Token|Bearer Token Source|VECTOR_HTTP_TOKEN|change-me-local-token|openssl rand -hex 32|not issued by Vector|not retrieved from Vector" README.md docs .env.example` found the expected documentation.
+  - Markdown local link check passed.
+  - `docker compose config >/tmp/token-doc-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
