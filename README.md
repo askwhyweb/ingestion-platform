@@ -68,7 +68,33 @@ Stdout is not a separate central endpoint. It is supported through integration p
 
 ## Send Logs
 
-HTTP JSON requires a bearer token:
+### HTTP Bearer Token
+
+The local HTTP ingestion token comes from `VECTOR_HTTP_TOKEN` in `.env`. When you first copy `.env.example` to `.env`, the default value is:
+
+```bash
+VECTOR_HTTP_TOKEN=change-me-local-token
+```
+
+You do not obtain this token from Vector, OpenSearch, or Docker. For local testing, use the value in `.env` as the bearer token. Before sharing the endpoint with other systems, replace it with a long random value and restart `vector-ingest`:
+
+```bash
+openssl rand -hex 32
+```
+
+Then set the generated value in `.env`:
+
+```bash
+VECTOR_HTTP_TOKEN=<generated-token>
+```
+
+Clients must send it in the HTTP header as:
+
+```text
+Authorization: Bearer <VECTOR_HTTP_TOKEN value>
+```
+
+HTTP JSON example:
 
 ```bash
 curl -X POST http://localhost:8080/logs \

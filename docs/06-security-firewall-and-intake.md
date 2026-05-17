@@ -34,6 +34,27 @@ Local defaults are for development. Do not expose the platform publicly without 
 - Secret rotation.
 - Monitoring for Kafka lag, Vector errors, OpenSearch indexing failures, and object storage write failures.
 
+## HTTP Bearer Token Handling
+
+Local HTTP ingestion uses `VECTOR_HTTP_TOKEN` from `.env`. The default value from `.env.example` is `change-me-local-token`, which is only a development placeholder.
+
+For local testing:
+
+```text
+Authorization: Bearer change-me-local-token
+```
+
+For a shared environment:
+
+- Generate a long random token, for example with `openssl rand -hex 32`.
+- Store it in `.env` as `VECTOR_HTTP_TOKEN`.
+- Restart `vector-ingest` after changing it.
+- Give the token only to approved source-system owners.
+- Rotate it through the integration intake process.
+- Prefer a reverse proxy or API gateway for per-source tokens, rate limits, TLS, request size limits, and audit logs.
+
+The built-in Vector check is intentionally simple and accepts one configured token. Production deployments should normally move token issuance, per-source identity, and rotation to an API gateway or ingress layer.
+
 ## Intake Checklist
 
 Use this for every new integration:
@@ -49,4 +70,3 @@ Use this for every new integration:
 - Diagnostic behavior and maximum diagnostic size.
 - Retention requirements.
 - Dashboard/reporting requirements.
-

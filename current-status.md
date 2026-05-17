@@ -32,6 +32,7 @@ Complete. Platform is built, running, tuned, documented with human-friendly numb
 - Added security, firewall, intake, retention, storage, stress testing, production, troubleshooting, and decision-log documentation aligned with the README.
 - Updated `AI-Instructions.md` so the numbered docs structure and dashboard/report customization rules are part of the project continuity standard.
 - Added AGPLv3 license-aware project summary to the top of `README.md` for public repository presentation.
+- Documented how the HTTP bearer token is configured through `VECTOR_HTTP_TOKEN` in `.env`, including local default use, token replacement, restart requirement, and production handling.
 
 ## Pending Work
 
@@ -44,7 +45,7 @@ Complete. Platform is built, running, tuned, documented with human-friendly numb
 
 ## Last Successful Command
 
-`rg -n "GNU Affero General Public License v3.0|AGPLv3|MinIO-compatible object storage" README.md`
+`docker compose config >/tmp/token-doc-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh`
 
 ## Last Failed Command
 

@@ -6,6 +6,37 @@ All logs should follow the contract in [04-logging-contract-and-fields.md](04-lo
 
 Use HTTP when the source application can POST structured JSON.
 
+### Bearer Token Source
+
+HTTP ingestion is protected by a bearer token. The token is configured locally through `VECTOR_HTTP_TOKEN` in `.env`; it is not issued by Vector or OpenSearch.
+
+For a fresh local setup:
+
+```bash
+cp .env.example .env
+rg VECTOR_HTTP_TOKEN .env
+```
+
+The default local development value is:
+
+```bash
+VECTOR_HTTP_TOKEN=change-me-local-token
+```
+
+Use that value in the `Authorization` header:
+
+```text
+Authorization: Bearer change-me-local-token
+```
+
+For any shared or production-like environment, replace it with a long random value:
+
+```bash
+openssl rand -hex 32
+```
+
+Set the generated value in `.env`, restart `vector-ingest`, and give each source system the token through its normal secret-management process. Do not commit real tokens.
+
 Endpoint:
 
 ```text
@@ -124,4 +155,3 @@ Helper:
 ```bash
 ./scripts/generate-diagnostic.sh
 ```
-
