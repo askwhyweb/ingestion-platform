@@ -1,0 +1,55 @@
+{
+  "index_patterns": ["logs-invalid-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "5s",
+      "plugins.index_state_management.policy_id": "logs-invalid-retention-policy",
+      "index.mapping.total_fields.limit": 2000
+    },
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "processed_at": { "type": "date" },
+        "ingested_at": { "type": "date" },
+        "environment": { "type": "keyword" },
+        "service": { "type": "keyword" },
+        "module": { "type": "keyword" },
+        "component": { "type": "keyword" },
+        "severity": { "type": "keyword" },
+        "severity_original": { "type": "keyword" },
+        "event_type": { "type": "keyword" },
+        "error_type": { "type": "keyword" },
+        "trace_id": { "type": "keyword" },
+        "order_number": { "type": "keyword" },
+        "sku": { "type": "keyword" },
+        "cron_name": { "type": "keyword" },
+        "connector_name": { "type": "keyword" },
+        "source_system": { "type": "keyword" },
+        "target_system": { "type": "keyword" },
+        "diagnostic_ref": { "type": "keyword" },
+        "diagnostic_size_bytes": { "type": "long" },
+        "retry_count": { "type": "integer" },
+        "http_status": { "type": "integer" },
+        "invalid_log": { "type": "boolean" },
+        "invalid_reason": { "type": "keyword" },
+        "message": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 512
+            }
+          }
+        },
+        "raw_event": {
+          "type": "text",
+          "index": false
+        }
+      }
+    }
+  }
+}
+

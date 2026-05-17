@@ -1,0 +1,3 @@
+.tmp/
+logs/incoming/*.jsonl
+!logs/incoming/.gitkeep

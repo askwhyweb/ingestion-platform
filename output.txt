@@ -1,0 +1,255 @@
+# Build Output Log
+
+This file is append-only where practical.
+
+## 2026-05-15 Initial implementation
+
+- Read user requirements and approved plan.
+- Confirmed workspace path: `/mnt/d/Repos/ingestion-platform`.
+- Found no existing required project files.
+- `git status --short` failed because the workspace is not a Git repository.
+- `docker --version` returned Docker version 29.4.3.
+- Earlier `docker compose version` and `docker compose ls` failed with `SIGBUS`; `/usr/bin/docker-compose version` returned Docker Compose version v5.1.3.
+- User later reported local Docker setup is now fully functional.
+- Created required directories with:
+  - `mkdir -p vector/ingest vector/processor kafka minio opensearch scripts logs/incoming docs`
+- Created initial platform files, scripts, Vector configs, Compose file, and docs.
+- Made scripts executable with:
+  - `chmod +x scripts/*.sh kafka/init-topics.sh minio/init-buckets.sh`
+- `bash -n scripts/*.sh kafka/init-topics.sh` passed.
+- `sh -n minio/init-buckets.sh` passed.
+- `docker compose version && docker compose config` passed with Docker Compose version v5.1.3.
+- `docker run ... timberio/vector:latest-debian validate /etc/vector/vector.yaml` failed:
+  - `failed to connect to the docker API at unix:///var/run/docker.sock`
+  - suspected cause: Linux Docker client is pointed at a missing Unix socket.
+- `docker context ls` showed `default` using `unix:///var/run/docker.sock` and `desktop-linux` using Docker Desktop npipe.
+- `docker --context desktop-linux info` failed with `protocol not available`.
+- `docker.exe info --format '{{.ServerVersion}}'` succeeded with `29.4.3`.
+- Updated `scripts/common.sh` to prefer working `docker compose`, then `docker.exe compose`, then `docker-compose`.
+- Vector validation through `docker.exe run` pulled `timberio/vector:latest-debian` and found config issues:
+  - `sources.file_json_logs` does not support `decoding`.
+  - Elasticsearch sinks do not accept `encoding.codec`.
+- Fix applied:
+  - Removed file source `decoding` and parse JSON in the file remap.
+  - Removed `encoding.codec` from OpenSearch sinks.
+- Processor validation then found fallible VRL predicates around `to_string(...)` checks.
+- Fix applied:
+  - Replaced required-field string checks with `(to_string(...) ?? "") == ""`.
+  - Replaced severity conversion with safe `to_string(.severity) ?? ""`.
+- Vector validation with `docker.exe run ... validate --skip-healthchecks` passed for ingest and processor configs.
+- Clean-up applied:
+  - Removed Kafka sink end-to-end acknowledgement config that warned on unsupported source acknowledgement paths.
+  - Removed unnecessary VRL `length!` abort marker.
+- `./scripts/up.sh` succeeded using `docker.exe compose`; services started and OpenSearch index template was applied.
+- `docker.exe compose ps` showed Kafka, MinIO, OpenSearch, Dashboards, Vector ingest, and Vector processor running healthy.
+- First `./scripts/test-pipeline.sh` failed:
+  - sent HTTP, TCP, and syslog test logs.
+  - timed out waiting for the HTTP trace in `logs-local-*`.
+  - Vector processor logs showed OpenSearch HTTP 400:
+    - `Action/metadata line [1] contains an unknown parameter [_type]`
+  - suspected cause: Vector Elasticsearch sink was sending type metadata not accepted by OpenSearch.
+- Fix applied:
+  - Added `suppress_type_name: true` to both OpenSearch sinks in `vector/processor/vector.yaml`.
+- Follow-up fix:
+  - Replaced deprecated `suppress_type_name` setting with `api_version: v8`, per Vector Elasticsearch sink docs.
+- Revalidated `vector/processor/vector.yaml` successfully after setting `api_version: v8`.
+- Recreated `vector-processor` with `docker.exe compose up -d --force-recreate vector-processor`; health became `healthy`.
+- Second `./scripts/test-pipeline.sh` results:
+  - HTTP trace found in `logs-local-*`.
+  - TCP trace found in `logs-local-*`.
+  - Syslog trace found in `logs-local-*`.
+  - File-tail trace found in `logs-local-*`.
+  - Invalid trace found in `logs-invalid-*`.
+  - Diagnostic step failed during `docker.exe compose cp`:
+    - `GetFileAttributesEx D:\tmp: The system cannot find the file specified.`
+  - suspected cause: Docker Desktop path conversion cannot copy from WSL `/tmp`.
+- Fix applied:
+  - Changed `scripts/generate-diagnostic.sh` to create diagnostic temp files under repo-local `.tmp/diagnostics`.
+- Third `./scripts/test-pipeline.sh` failed during the same diagnostic copy step:
+  - `GetFileAttributesEx D:\mnt: The system cannot find the file specified.`
+  - suspected cause: `docker.exe compose cp` requires an explicit Windows path, not a WSL `/mnt/...` path.
+- Fix applied:
+  - `scripts/generate-diagnostic.sh` now converts the diagnostic copy source with `wslpath -w` when the selected Compose command starts with `docker.exe`.
+- Fourth `./scripts/test-pipeline.sh` passed completely:
+  - HTTP, TCP, syslog, file-tail, invalid-log routing, diagnostic_ref search by trace, valid archive, invalid archive, and diagnostics bucket checks all passed.
+- Direct `diagnostic_ref` query returned one matching OpenSearch document.
+- `docker.exe compose ps` showed all core services healthy.
+- Stress profile run succeeded with `docker.exe compose --profile stress run --rm log-stress-tool`; it generated 3000 records using default profile values.
+- Direct stress script run succeeded with:
+  - `./scripts/generate-load.sh --rate 2 --duration 1 --services checkout --modules api --message-size 64`
+  - generated 2 records.
+- Follow-up security fix:
+  - Fresh HTTP events should no longer index or archive top-level HTTP `Authorization` headers. The HTTP remap now extracts non-secret metadata, deletes selected headers, then sets `raw_event`.
+- Revalidated `vector/ingest/vector.yaml` successfully after the HTTP header cleanup.
+- Recreated `vector-ingest` with `docker.exe compose up -d --force-recreate vector-ingest`; health became `healthy`.
+- Sent a fresh HTTP log and queried it from OpenSearch. The new document no longer contained the top-level `Authorization` field or token in `raw_event`.
+- Added `.gitignore` for repo-local `.tmp/` diagnostic staging files.
+- Final service check:
+  - `docker.exe compose ps` showed Kafka, MinIO, OpenSearch, OpenSearch Dashboards, Vector ingest, and Vector processor healthy.
+  - `curl http://localhost:9200/_cat/indices/logs-*?v` showed `logs-local-2026.05.15` and `logs-invalid-2026.05.15` green.
+  - MinIO bucket/object check found archive objects under `logs-archive-local`, invalid archive objects under `invalid-logs-local`, and diagnostic objects under `diagnostics-local`.
+- Cleanup:
+  - Removed generated `logs/incoming/test-*.jsonl` files.
+  - Updated `.gitignore` to ignore future `logs/incoming/*.jsonl` test/input files while keeping `.gitkeep`.
+  - Removed duplicate status entries from `current-status.md`.
+- Final cleanup check:
+  - `logs/incoming` now contains only `.gitkeep`.
+  - `docker.exe compose ps --status running` showed all six core long-running services healthy.
+
+## Final Status
+
+The platform is built and validated. Core ingestion paths, OpenSearch indexing, MinIO archive paths, invalid routing, diagnostics, stress utility, and continuity files are complete.
+
+## 2026-05-17 Dashboard and retention completion
+
+- Read `AI-Instructions.md`, `current-status.md`, and `output.txt` before changing files.
+- Added local sustained-stress tuning:
+  - `.env.example` now defaults OpenSearch heap to `-Xms1g -Xmx1g`.
+  - `docker-compose.yml` now defaults OpenSearch heap to `-Xms1g -Xmx1g` and container memory to `2g`.
+  - Kafka now defaults to 6 partitions, 7-day topic retention, 256 MB segments, and 512 MB broker heap.
+  - `kafka/init-topics.sh` now idempotently increases existing topic partitions when the configured partition count is higher.
+- `scripts/apply-retention.sh` now uses `OPENSEARCH_LOGS_RETENTION_DAYS` and `OPENSEARCH_INVALID_RETENTION_DAYS` when rendering local ISM policies.
+- Added retention assets and bootstrap:
+  - `opensearch/ism-policy-logs-local.json`
+  - `opensearch/ism-policy-logs-invalid.json`
+  - `opensearch/index-template-invalid.json`
+  - `scripts/apply-retention.sh`
+  - `scripts/up.sh` now runs `scripts/apply-retention.sh`.
+- Applied retention with `./scripts/apply-retention.sh`; OpenSearch accepted both ISM policies and both index templates.
+- Added real Dashboards saved object bootstrap:
+  - `scripts/apply-dashboards.sh`
+  - `docs/dashboards.md`
+  - `scripts/up.sh` now runs `scripts/apply-dashboards.sh`.
+- First `scripts/apply-dashboards.sh` attempt failed with HTTP 400 because nested `searchSourceJSON` quotes were not escaped correctly.
+- Fixed `scripts/apply-dashboards.sh` JSON escaping and reran successfully.
+- Verified real saved objects with Dashboards API:
+  - dashboard `logging-observability-overview`
+  - 9 saved searches for error overview, errors by service, errors by module, fatal errors, connector failures, cron failures, trace lookup, diagnostic references, and invalid logs.
+- Recreated Kafka through `docker.exe compose run --rm kafka-init`; existing `logs.raw` topic was increased from 3 to 6 partitions and topic retention configs were applied.
+- Recreated OpenSearch, OpenSearch Dashboards, and Vector processor with `docker.exe compose up -d --force-recreate opensearch opensearch-dashboards vector-processor`.
+- Verified OpenSearch now runs with `OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g`.
+- Reapplied retention and dashboard saved objects after recreation.
+- Post-tuning `./scripts/test-pipeline.sh` initially failed waiting for the file-tail trace.
+  - HTTP, TCP, and syslog traces were indexed.
+  - Vector ingest found the new file but did not emit it.
+  - suspected cause: file source checksum fingerprint reused offsets for same-shaped JSONL test files.
+- Fix applied:
+  - changed `vector/ingest/vector.yaml` file source fingerprint strategy from `checksum` to `device_and_inode`.
+  - revalidated the Vector ingest config.
+  - recreated `vector-ingest`.
+- Reran `./scripts/test-pipeline.sh`; it passed completely:
+  - HTTP, TCP, syslog, file-tail, invalid routing, diagnostic object storage, diagnostic trace search, valid archive, invalid archive, and diagnostics bucket checks all passed.
+- Validated stress profile override:
+  - `docker.exe compose --profile stress run --rm -e STRESS_RATE=2 -e STRESS_DURATION=1 -e STRESS_MESSAGE_SIZE=64 log-stress-tool`
+  - generated 2 records.
+- Validated syntax and Compose:
+  - `docker compose config`
+  - `bash -n scripts/*.sh kafka/init-topics.sh`
+  - `sh -n minio/init-buckets.sh`
+- Updated `README.md`, `AI-Instructions.md`, `docs/stress-testing.md`, `docs/retention-policy.md`, and `docs/troubleshooting.md`.
+- Cleaned generated `logs/incoming/test-*.jsonl` files.
+- Final service/index check succeeded:
+  - `docker.exe compose ps --status running` showed all long-running services healthy.
+  - `curl -fsS http://localhost:9200/_cat/indices/logs-*?v` showed valid and invalid log indices green.
+- Final tightening:
+  - `scripts/apply-retention.sh` was revalidated after wiring retention day env vars into generated ISM policy payloads.
+  - `docker compose config` confirmed OpenSearch heap `-Xms1g -Xmx1g`, 2 GB memory limit, Kafka 6 partitions, 7-day retention, and 256 MB segment settings.
+  - `logs/incoming` contains only `.gitkeep`.
+  - `docker.exe compose ps --status running` showed all long-running services healthy.
+  - Dashboards API confirmed the real `Logging Observability Overview` dashboard object exists.
+
+## 2026-05-17 Human-friendly documentation expansion
+
+- Read `AI-Instructions.md`, `current-status.md`, and `output.txt` before changing files.
+- Implemented the expanded documentation plan requested by the user.
+- Updated `AI-Instructions.md` so numbered docs and durable dashboard/report customization guidance are part of the project continuity standard.
+- Rewrote `README.md` as the first-stop human guide:
+  - platform overview and service roles
+  - local URLs
+  - quick start, stop, reset, and validation commands
+  - supported ingestion methods: HTTP JSON, TCP JSON lines, syslog, file-tail, stdout integration patterns, and diagnostics
+  - "Which Integration Should I Use?"
+  - logging contract summary
+  - dashboard entry point: `Logging Observability Overview`
+  - report customization overview
+  - retention, stress, security, firewall, intake, OpenSearch queries, and production notes
+- Reorganized `/docs` into numbered guides:
+  - `docs/01-architecture.md`
+  - `docs/02-setup.md`
+  - `docs/03-ingestion-integrations.md`
+  - `docs/04-logging-contract-and-fields.md`
+  - `docs/05-dashboards-reporting-and-customization.md`
+  - `docs/06-security-firewall-and-intake.md`
+  - `docs/07-retention-storage-and-diagnostics.md`
+  - `docs/08-stress-testing.md`
+  - `docs/09-production-notes.md`
+  - `docs/10-troubleshooting.md`
+  - `docs/11-decision-log.md`
+- Added detailed ingestion documentation:
+  - HTTP JSON with auth header and curl examples
+  - TCP JSON lines with `nc` examples and framing guidance
+  - syslog TCP/UDP examples and JSON-body caveat
+  - file-tail from `logs/incoming/*.jsonl`
+  - stdout patterns via Docker log tailing, TCP piping, or a local Vector agent
+  - connector, cron, and diagnostic examples
+- Added detailed logging-contract and custom-field documentation:
+  - required and optional fields
+  - severity normalization
+  - invalid-log routing
+  - diagnostic references
+  - `tenant_id` custom field example with mapping and query guidance
+- Added detailed OpenSearch Dashboards and reporting customization documentation:
+  - current data views, saved searches, and `Logging Observability Overview`
+  - supported reporting fields
+  - field planning and OpenSearch mapping type guidance
+  - workflow for adding new fields
+  - workflow for creating multiple durable reports
+  - report sets for operations, connector monitoring, cron monitoring, business investigations, diagnostic review, and data quality
+  - concrete connector failure, cron failure, business investigation, diagnostic, and tenant report payloads, queries, and columns
+  - guidance for customizing reports by ingestion source, environment, service taxonomy, severity policy, and diagnostics behavior
+- Added security/firewall/intake documentation:
+  - port matrix
+  - trusted-source firewall guidance
+  - private-service recommendations for OpenSearch, Dashboards, Kafka, and MinIO
+  - HTTPS, API key, source identity, payload limits, rate limits, auditing, and token rotation controls
+  - integration intake checklist
+- Added retention/storage/diagnostics documentation:
+  - OpenSearch ISM policies
+  - Kafka retention and partition notes
+  - MinIO bucket roles
+  - archive and diagnostic lifecycle
+  - GCP Cloud Storage migration notes
+- Added production and troubleshooting documentation aligned with the README.
+- Static validation:
+  - `docker compose config >/tmp/compose-docs-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - Local markdown-link validation passed: `markdown local links ok`.
+  - Content checks confirmed `stdout`, `tenant_id`, `connector_failure`, `cron_failed`, `order_submit_failed`, `diagnostic_ref`, `Logging Observability Overview`, and `Integration Intake Checklist` are documented.
+  - `find docs -maxdepth 1 -type f -printf '%f\n' | sort` confirmed the numbered guide set exists.
+  - Active docs references in README and AI instructions point to numbered docs. Historical references remain only in append-only `output.txt`.
+- Runtime validation:
+  - `./scripts/apply-retention.sh` passed.
+  - `./scripts/apply-dashboards.sh` passed.
+  - First `./scripts/test-pipeline.sh` run during this documentation pass failed waiting for `trace-diagnostic-test-1779007018` in `logs-local-*`.
+  - Investigation showed the ordinary HTTP/TCP/syslog/file events from that run were present in Kafka/OpenSearch; the diagnostic trace was not present in Kafka.
+  - Kafka consumer group check showed `vector-processor` lag was 0 on all partitions.
+  - A direct `scripts/generate-diagnostic.sh debug-...` run succeeded; the diagnostic trace appeared in Kafka and OpenSearch.
+  - Reran `rm -f logs/incoming/test-*.jsonl && ./scripts/test-pipeline.sh`; it passed completely:
+    - HTTP ingestion found in OpenSearch
+    - TCP ingestion found in OpenSearch
+    - syslog ingestion found in OpenSearch
+    - file-tail ingestion found in OpenSearch
+    - invalid log found in invalid index
+    - diagnostic object copied to MinIO
+    - diagnostic trace found in OpenSearch
+    - valid archive objects found in MinIO
+    - invalid archive objects found in MinIO
+    - diagnostics objects found in MinIO
+- Current conclusion:
+  - Documentation expansion is complete.
+  - Runtime validation is passing after rerun.
+  - The one diagnostic trace timeout is recorded as a transient miss because direct diagnostic generation and full pipeline rerun both passed.
+- Final lightweight validation after continuity updates:
+  - `docker compose config >/tmp/final-compose-docs-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - Markdown local link check passed.
+  - Documentation content checks passed for stdout, `tenant_id`, connector failure, cron failure, business investigation, `diagnostic_ref`, `Logging Observability Overview`, and `Integration Intake Checklist`.
+  - `docker.exe compose ps --status running` showed Kafka, MinIO, OpenSearch, OpenSearch Dashboards, Vector ingest, and Vector processor running healthy.

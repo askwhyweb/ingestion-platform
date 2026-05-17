@@ -1,0 +1,140 @@
+data_dir: /var/lib/vector
+
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+
+sources:
+  http_logs:
+    type: http_server
+    address: 0.0.0.0:8080
+    path: /logs
+    strict_path: true
+    method: POST
+    response_code: 202
+    headers:
+      - Authorization
+      - User-Agent
+      - X-Forwarded-For
+      - X-Source-System
+    auth:
+      strategy: custom
+      source: |-
+        expected = "Bearer " + get_env_var!("VECTOR_HTTP_TOKEN")
+        exists(.headers.authorization) && .headers.authorization == expected
+    decoding:
+      codec: json
+
+  tcp_json_logs:
+    type: socket
+    address: 0.0.0.0:9002
+    mode: tcp
+    max_length: ${VECTOR_MAX_EVENT_BYTES}
+    decoding:
+      codec: json
+
+  syslog_tcp:
+    type: syslog
+    address: 0.0.0.0:5514
+    mode: tcp
+
+  syslog_udp:
+    type: syslog
+    address: 0.0.0.0:5514
+    mode: udp
+
+  file_json_logs:
+    type: file
+    include:
+      - /var/log/ingestion/*.jsonl
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
+transforms:
+  ingest_http:
+    type: remap
+    inputs: ["http_logs"]
+    source: |-
+      .ingest_source = "http"
+      .ingest_gateway = "vector-ingest"
+      .ingested_at = now()
+      .source_metadata = {
+        "http_path": .path,
+        "user_agent": get(., ["User-Agent"]) ?? null,
+        "forwarded_for": get(., ["X-Forwarded-For"]) ?? null,
+        "source_system_header": get(., ["X-Source-System"]) ?? null
+      }
+      del(.headers)
+      del(.Authorization)
+      del(."User-Agent")
+      del(."X-Forwarded-For")
+      del(."X-Source-System")
+      del(.path)
+      .raw_event = encode_json(.)
+
+  ingest_tcp:
+    type: remap
+    inputs: ["tcp_json_logs"]
+    source: |-
+      .raw_event = encode_json(.)
+      .ingest_source = "tcp_json"
+      .ingest_gateway = "vector-ingest"
+      .ingested_at = now()
+      .source_metadata = {
+        "host": .host,
+        "port": .port
+      }
+
+  ingest_syslog:
+    type: remap
+    inputs: ["syslog_tcp", "syslog_udp"]
+    source: |-
+      original = encode_json(.)
+      syslog_message = to_string(.message) ?? ""
+      parsed, err = parse_json(syslog_message)
+      if err == null && is_object(parsed) {
+        . = merge(., object!(parsed))
+      }
+      .raw_event = original
+      .ingest_source = "syslog"
+      .ingest_gateway = "vector-ingest"
+      .ingested_at = now()
+      .source_metadata = {
+        "syslog_hostname": .hostname,
+        "syslog_appname": .appname,
+        "syslog_facility": .facility,
+        "syslog_process_id": .procid
+      }
+
+  ingest_file:
+    type: remap
+    inputs: ["file_json_logs"]
+    source: |-
+      original = encode_json(.)
+      file_message = to_string(.message) ?? ""
+      parsed, err = parse_json(file_message)
+      if err == null && is_object(parsed) {
+        . = merge(., object!(parsed))
+      }
+      .raw_event = original
+      .ingest_source = "file_tail"
+      .ingest_gateway = "vector-ingest"
+      .ingested_at = now()
+      .source_metadata = {
+        "file": .file,
+        "host": .host
+      }
+
+sinks:
+  kafka_raw:
+    type: kafka
+    inputs: ["ingest_http", "ingest_tcp", "ingest_syslog", "ingest_file"]
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    topic: ${KAFKA_TOPIC_RAW}
+    encoding:
+      codec: json
+    buffer:
+      type: disk
+      max_size: 1073741824
+      when_full: block

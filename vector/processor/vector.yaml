@@ -1,0 +1,200 @@
+data_dir: /var/lib/vector
+
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+
+sources:
+  raw_logs:
+    type: kafka
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    group_id: vector-processor
+    topics:
+      - ${KAFKA_TOPIC_RAW}
+    decoding:
+      codec: json
+
+transforms:
+  validate_and_enrich:
+    type: remap
+    inputs: ["raw_logs"]
+    source: |-
+      if !exists(.raw_event) {
+        .raw_event = encode_json(.)
+      }
+
+      .processed_at = now()
+      .pipeline = {
+        "name": "local-observability-ingestion",
+        "stage": "vector-processor",
+        "version": "1"
+      }
+
+      if !exists(.source_metadata) || !is_object(.source_metadata) {
+        .source_metadata = {}
+      }
+
+      missing = []
+      if !exists(."@timestamp") || is_null(."@timestamp") || (to_string(."@timestamp") ?? "") == "" {
+        missing = push(missing, "@timestamp")
+      }
+      if !exists(.environment) || is_null(.environment) || (to_string(.environment) ?? "") == "" {
+        missing = push(missing, "environment")
+      }
+      if !exists(.service) || is_null(.service) || (to_string(.service) ?? "") == "" {
+        missing = push(missing, "service")
+      }
+      if !exists(.module) || is_null(.module) || (to_string(.module) ?? "") == "" {
+        missing = push(missing, "module")
+      }
+      if !exists(.component) || is_null(.component) || (to_string(.component) ?? "") == "" {
+        missing = push(missing, "component")
+      }
+      if !exists(.severity) || is_null(.severity) || (to_string(.severity) ?? "") == "" {
+        missing = push(missing, "severity")
+      }
+      if !exists(.event_type) || is_null(.event_type) || (to_string(.event_type) ?? "") == "" {
+        missing = push(missing, "event_type")
+      }
+      if !exists(.message) || is_null(.message) || (to_string(.message) ?? "") == "" {
+        missing = push(missing, "message")
+      }
+      if !exists(.trace_id) || is_null(.trace_id) || (to_string(.trace_id) ?? "") == "" {
+        missing = push(missing, "trace_id")
+      }
+
+      reasons = []
+      if length(missing) > 0 {
+        reasons = push(reasons, "missing_required_fields:" + join!(missing, ","))
+      }
+
+      if exists(.severity) && !is_null(.severity) {
+        original_severity = downcase(to_string(.severity) ?? "")
+        .severity_original = original_severity
+        if includes(["trace", "verbose"], original_severity) {
+          .severity = "debug"
+        } else if includes(["information", "notice"], original_severity) {
+          .severity = "info"
+        } else if includes(["warning"], original_severity) {
+          .severity = "warn"
+        } else if includes(["err"], original_severity) {
+          .severity = "error"
+        } else if includes(["critical", "crit", "emergency", "alert"], original_severity) {
+          .severity = "fatal"
+        } else if includes(["debug", "info", "warn", "error", "fatal"], original_severity) {
+          .severity = original_severity
+        } else {
+          .severity = "info"
+          reasons = push(reasons, "invalid_severity:" + original_severity)
+        }
+      }
+
+      if exists(.diagnostic_payload) {
+        .diagnostic_payload_removed = true
+        .diagnostic_payload_bytes = length(encode_json(.diagnostic_payload))
+        del(.diagnostic_payload)
+      }
+
+      if exists(.diagnostic_ref) && is_null(.diagnostic_size_bytes) {
+        .diagnostic_size_bytes = 0
+      }
+
+      if length(reasons) > 0 {
+        .invalid_log = true
+        .invalid_reason = join!(reasons, ";")
+      } else {
+        .invalid_log = false
+      }
+
+  valid_logs:
+    type: filter
+    inputs: ["validate_and_enrich"]
+    condition: '.invalid_log == false'
+
+  invalid_logs:
+    type: filter
+    inputs: ["validate_and_enrich"]
+    condition: '.invalid_log == true'
+
+sinks:
+  opensearch_valid:
+    type: elasticsearch
+    inputs: ["valid_logs"]
+    endpoints:
+      - ${OPENSEARCH_ENDPOINT}
+    mode: bulk
+    opensearch_service_type: managed
+    api_version: v8
+    bulk:
+      action: index
+      index: logs-local-%Y.%m.%d
+    compression: gzip
+    buffer:
+      type: disk
+      max_size: 1073741824
+      when_full: block
+
+  opensearch_invalid:
+    type: elasticsearch
+    inputs: ["invalid_logs"]
+    endpoints:
+      - ${OPENSEARCH_ENDPOINT}
+    mode: bulk
+    opensearch_service_type: managed
+    api_version: v8
+    bulk:
+      action: index
+      index: logs-invalid-%Y.%m.%d
+    compression: gzip
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block
+
+  minio_archive_valid:
+    type: aws_s3
+    inputs: ["valid_logs"]
+    bucket: ${LOGS_ARCHIVE_BUCKET}
+    endpoint: ${MINIO_ENDPOINT}
+    region: ${MINIO_REGION}
+    force_path_style: true
+    key_prefix: valid/date=%F/
+    filename_time_format: "%s"
+    filename_append_uuid: true
+    filename_extension: json.gz
+    compression: gzip
+    content_encoding: gzip
+    content_type: application/gzip
+    encoding:
+      codec: json
+    batch:
+      max_events: 1000
+      timeout_secs: 10
+    buffer:
+      type: disk
+      max_size: 1073741824
+      when_full: block
+
+  minio_archive_invalid:
+    type: aws_s3
+    inputs: ["invalid_logs"]
+    bucket: ${INVALID_LOGS_BUCKET}
+    endpoint: ${MINIO_ENDPOINT}
+    region: ${MINIO_REGION}
+    force_path_style: true
+    key_prefix: invalid/date=%F/
+    filename_time_format: "%s"
+    filename_append_uuid: true
+    filename_extension: json.gz
+    compression: gzip
+    content_encoding: gzip
+    content_type: application/gzip
+    encoding:
+      codec: json
+    batch:
+      max_events: 1000
+      timeout_secs: 10
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block

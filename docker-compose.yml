@@ -1,0 +1,219 @@
+services:
+  kafka:
+    image: ${KAFKA_IMAGE:-apache/kafka:4.1.0}
+    container_name: ingestion-kafka
+    ports:
+      - "${KAFKA_HOST_PORT:-19092}:19092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-19092}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms512m -Xmx512m}
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  kafka-init:
+    image: ${KAFKA_IMAGE:-apache/kafka:4.1.0}
+    container_name: ingestion-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_TOPIC_RAW: ${KAFKA_TOPIC_RAW:-logs.raw}
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-6}
+      KAFKA_TOPIC_RETENTION_MS: ${KAFKA_TOPIC_RETENTION_MS:-604800000}
+      KAFKA_TOPIC_SEGMENT_BYTES: ${KAFKA_TOPIC_SEGMENT_BYTES:-268435456}
+    volumes:
+      - ./kafka/init-topics.sh:/init-topics.sh:ro
+    command: ["/bin/bash", "/init-topics.sh"]
+    restart: "no"
+
+  opensearch:
+    image: ${OPENSEARCH_IMAGE:-opensearchproject/opensearch:2.19.1}
+    container_name: ingestion-opensearch
+    ports:
+      - "${OPENSEARCH_PORT:-9200}:9200"
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms1g -Xmx1g}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-local-Admin-Password-123!}
+      bootstrap.memory_lock: "true"
+    mem_limit: ${OPENSEARCH_MEM_LIMIT:-2g}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+
+  opensearch-dashboards:
+    image: ${OPENSEARCH_DASHBOARDS_IMAGE:-opensearchproject/opensearch-dashboards:2.19.1}
+    container_name: ingestion-opensearch-dashboards
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    ports:
+      - "${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601"
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5601/api/status >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  minio:
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:latest}
+    container_name: ingestion-minio
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE:-quay.io/minio/mc:latest}
+    container_name: ingestion-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      LOGS_ARCHIVE_BUCKET: ${LOGS_ARCHIVE_BUCKET:-logs-archive-local}
+      DIAGNOSTICS_BUCKET: ${DIAGNOSTICS_BUCKET:-diagnostics-local}
+      INVALID_LOGS_BUCKET: ${INVALID_LOGS_BUCKET:-invalid-logs-local}
+    volumes:
+      - ./minio/init-buckets.sh:/init-buckets.sh:ro
+    entrypoint: ["/bin/sh", "/init-buckets.sh"]
+    restart: "no"
+
+  vector-ingest:
+    image: ${VECTOR_IMAGE:-timberio/vector:latest-debian}
+    container_name: ingestion-vector-ingest
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "${VECTOR_HTTP_PORT:-8080}:8080"
+      - "${VECTOR_TCP_PORT:-9002}:9002"
+      - "${VECTOR_SYSLOG_PORT:-5514}:5514/tcp"
+      - "${VECTOR_SYSLOG_PORT:-5514}:5514/udp"
+    environment:
+      VECTOR_HTTP_TOKEN: ${VECTOR_HTTP_TOKEN:-change-me-local-token}
+      VECTOR_MAX_EVENT_BYTES: ${VECTOR_MAX_EVENT_BYTES:-1048576}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_TOPIC_RAW: ${KAFKA_TOPIC_RAW:-logs.raw}
+    volumes:
+      - ./vector/ingest/vector.yaml:/etc/vector/vector.yaml:ro
+      - ./logs/incoming:/var/log/ingestion:ro
+      - vector-ingest-data:/var/lib/vector
+    command: ["--config", "/etc/vector/vector.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "vector validate /etc/vector/vector.yaml >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  vector-processor:
+    image: ${VECTOR_IMAGE:-timberio/vector:latest-debian}
+    container_name: ingestion-vector-processor
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      opensearch:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_TOPIC_RAW: ${KAFKA_TOPIC_RAW:-logs.raw}
+      OPENSEARCH_ENDPOINT: http://opensearch:9200
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      LOGS_ARCHIVE_BUCKET: ${LOGS_ARCHIVE_BUCKET:-logs-archive-local}
+      INVALID_LOGS_BUCKET: ${INVALID_LOGS_BUCKET:-invalid-logs-local}
+    volumes:
+      - ./vector/processor/vector.yaml:/etc/vector/vector.yaml:ro
+      - vector-processor-data:/var/lib/vector
+    command: ["--config", "/etc/vector/vector.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "vector validate /etc/vector/vector.yaml >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  log-stress-tool:
+    image: alpine:3.20
+    container_name: ingestion-log-stress-tool
+    profiles: ["stress"]
+    depends_on:
+      vector-ingest:
+        condition: service_started
+    environment:
+      VECTOR_HTTP_URL: http://vector-ingest:8080/logs
+      VECTOR_HTTP_TOKEN: ${VECTOR_HTTP_TOKEN:-change-me-local-token}
+      STRESS_RATE: ${STRESS_RATE:-100}
+      STRESS_DURATION: ${STRESS_DURATION:-30}
+      STRESS_SERVICES: ${STRESS_SERVICES:-checkout,orders,inventory}
+      STRESS_MODULES: ${STRESS_MODULES:-api,worker,connector,cron}
+      STRESS_SEVERITY_MIX: ${STRESS_SEVERITY_MIX:-debug:5,info:70,warn:15,error:8,fatal:2}
+      STRESS_MESSAGE_SIZE: ${STRESS_MESSAGE_SIZE:-256}
+      STRESS_DIAGNOSTICS: ${STRESS_DIAGNOSTICS:-false}
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+    working_dir: /workspace
+    command: ["/bin/sh", "-c", "apk add --no-cache bash curl coreutils >/dev/null && bash scripts/generate-load.sh --url \"$${VECTOR_HTTP_URL}\" --token \"$${VECTOR_HTTP_TOKEN}\" --rate \"$${STRESS_RATE}\" --duration \"$${STRESS_DURATION}\" --services \"$${STRESS_SERVICES}\" --modules \"$${STRESS_MODULES}\" --severity-mix \"$${STRESS_SEVERITY_MIX}\" --message-size \"$${STRESS_MESSAGE_SIZE}\" --diagnostics \"$${STRESS_DIAGNOSTICS}\""]
+
+volumes:
+  kafka-data:
+  opensearch-data:
+  minio-data:
+  vector-ingest-data:
+  vector-processor-data:
