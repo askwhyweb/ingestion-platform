@@ -23,7 +23,7 @@ external systems
 | `kafka-init` | Create or update `logs.raw` topic settings. |
 | `vector-processor` | Consume from Kafka, validate required fields, normalize severity, remove inline diagnostic payloads, enrich events, and route valid/invalid logs. |
 | `opensearch` | Store searchable valid logs in `logs-local-*` and invalid logs in `logs-invalid-*`. |
-| `opensearch-dashboards` | Provide data views, saved searches, and `Logging Observability Overview`. |
+| `opensearch-dashboards` | Provide data views, saved searches, `Logging Observability Overview`, and `Logging Pivot Reports`. |
 | `minio` | Store compressed valid archives, invalid archives, and diagnostic objects locally. |
 | `minio-init` | Create required MinIO buckets. |
 | `log-stress-tool` | Optional test utility behind the `stress` Compose profile. |
@@ -52,4 +52,3 @@ Kafka protects the central intake path from short downstream failures. If OpenSe
 - Valid archives: MinIO bucket `logs-archive-local`
 - Invalid archives: MinIO bucket `invalid-logs-local`
 - Large diagnostics: MinIO bucket `diagnostics-local`
-

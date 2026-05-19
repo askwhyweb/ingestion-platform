@@ -98,13 +98,15 @@ Plain syslog messages are accepted, but they are routed invalid unless the JSON 
 Use file-tail for batch jobs, local files, mounted logs, or Docker JSON logs converted to JSONL.
 
 ```bash
-printf '%s\n' '{"@timestamp":"2026-05-17T10:00:00Z","environment":"prod","service":"billing","module":"cron","component":"invoice-close","severity":"info","event_type":"cron_complete","message":"Invoice close completed","trace_id":"trace-file-001","cron_name":"nightly-invoice-close"}' > logs/incoming/invoice-close.jsonl
+printf '%s\n' '{"@timestamp":"2026-05-17T10:00:00Z","environment":"prod","service":"billing","module":"cron","component":"invoice-close","severity":"info","event_type":"cron_complete","message":"Invoice close completed","trace_id":"trace-file-001","cron_name":"nightly-invoice-close"}' > logs/incoming/.invoice-close.tmp
+mv logs/incoming/.invoice-close.tmp logs/incoming/invoice-close.jsonl
 ```
 
 Rules:
 
 - Write one JSON object per line.
 - Use `logs/incoming/*.jsonl`.
+- For one-shot files on Docker Desktop/WSL mounts, write to a non-matching temporary name first and then rename to `*.jsonl`. This avoids Vector seeing an empty file while it is still being written.
 - The Vector file source uses `device_and_inode` fingerprinting so new files with similar content are still read.
 
 ## Stdout Integration Patterns

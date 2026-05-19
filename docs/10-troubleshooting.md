@@ -38,6 +38,13 @@ curl http://localhost:9200/_cat/indices?v
 
 The file source uses `device_and_inode` fingerprinting so same-shaped JSONL files are not skipped because their content prefix matches an older test file.
 
+On Docker Desktop/WSL bind mounts, a watcher can notice a matching `*.jsonl` path before a one-shot write is complete. Prefer writing to a temporary filename that does not match `*.jsonl`, then rename it:
+
+```bash
+printf '%s\n' '{"@timestamp":"2026-05-19T10:00:00Z","environment":"local","service":"file-service","module":"file-module","component":"file-tail-test","severity":"info","event_type":"file_test","message":"File test","trace_id":"trace-file-manual"}' > logs/incoming/.manual.tmp
+mv logs/incoming/.manual.tmp logs/incoming/manual.jsonl
+```
+
 ```bash
 rm -f logs/incoming/test-*.jsonl
 docker compose up -d --force-recreate vector-ingest
@@ -49,6 +56,7 @@ docker compose up -d --force-recreate vector-ingest
 ```bash
 ./scripts/apply-dashboards.sh
 curl 'http://localhost:5601/api/saved_objects/_find?type=dashboard&search=Logging%20Observability%20Overview&search_fields=title' -H 'osd-xsrf: true'
+curl 'http://localhost:5601/api/saved_objects/_find?type=dashboard&search=Logging%20Pivot%20Reports&search_fields=title' -H 'osd-xsrf: true'
 ```
 
 ## No Archive Objects in MinIO

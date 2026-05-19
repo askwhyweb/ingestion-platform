@@ -277,3 +277,175 @@ The platform is built and validated. Core ingestion paths, OpenSearch indexing, 
   - `rg -n "HTTP Bearer Token|Bearer Token Source|VECTOR_HTTP_TOKEN|change-me-local-token|openssl rand -hex 32|not issued by Vector|not retrieved from Vector" README.md docs .env.example` found the expected documentation.
   - Markdown local link check passed.
   - `docker compose config >/tmp/token-doc-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+
+## 2026-05-19 Pivot-style filterable reporting documentation
+
+- Read `AI-Instructions.md`, `current-status.md`, `output.txt`, README dashboard section, and existing dashboard/report customization docs before changing files.
+- Checked current OpenSearch Dashboards documentation. It documents data visualization types including Controls, Data Tables, TSVB, VisBuilder, Vega, and dashboard creation. It does not imply this project's default saved-object bootstrap includes an Excel-style pivot table.
+- Added `docs/12-pivot-style-filterable-reporting.md`.
+- Updated `README.md` with a pivot-style reporting note and link to the new guide.
+- Updated `README.md` docs index with the new guide.
+- Updated `docs/05-dashboards-reporting-and-customization.md` to point to the pivot-style reporting guide.
+- Updated `docs/11-decision-log.md` with the pivot-reporting decision:
+  - OpenSearch Dashboards supports grouped/filterable tables through built-in tools.
+  - The project default remains saved searches and overview dashboard only.
+  - Durable pivot-like reports should be explored in the UI, then encoded in `scripts/apply-dashboards.sh` once stable.
+- Updated `AI-Instructions.md` required docs list with `docs/12-pivot-style-filterable-reporting.md`.
+- The new guide documents:
+  - what is doable by default
+  - what is not included as a default pivot object
+  - field mapping requirements for aggregatable/filterable reports
+  - Data Table pivot-like report steps
+  - dashboard Controls setup
+  - connector failure, cron failure, business investigation, and diagnostic pivot examples
+  - SQL/PPL Query Workbench examples
+  - Vega guidance for matrix-style reports
+- Validation:
+  - Markdown local link check passed.
+  - `docker compose config >/tmp/pivot-doc-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - Content check found pivot-style reporting references in README, AI instructions, and docs.
+  - `find docs -maxdepth 1 -type f -printf '%f\n' | sort` confirmed `12-pivot-style-filterable-reporting.md` exists.
+
+## 2026-05-19 Default pivot dashboard implementation
+
+- User clarified that the Dockerized setup should come up with pivot-style reporting by default.
+- Updated `scripts/apply-dashboards.sh`:
+  - added JSON payload helper functions for Data Table visualizations, Controls visualizations, and generated dashboard payloads
+  - kept existing `Logging Observability Overview`
+  - added `Logging Pivot Reports`
+  - added `pivot-filter-controls`
+  - added `pivot-errors-service-severity`
+  - added `pivot-errors-module-component`
+  - added `pivot-connector-failures`
+  - added `pivot-cron-failures`
+  - added `pivot-business-failures`
+  - added `pivot-diagnostic-volume`
+  - added `pivot-invalid-logs`
+- Updated docs and continuity:
+  - `README.md` now states `Logging Pivot Reports` is created by default.
+  - `docs/05-dashboards-reporting-and-customization.md` lists the default pivot dashboard and visualizations.
+  - `docs/12-pivot-style-filterable-reporting.md` now describes default pivot dashboard behavior instead of documentation-only behavior.
+  - `docs/11-decision-log.md` records why default pivot-style reports are created through Data Table and Controls saved objects.
+  - `docs/01-architecture.md` mentions `Logging Pivot Reports`.
+  - `docs/10-troubleshooting.md` includes an API check for `Logging Pivot Reports`.
+  - `AI-Instructions.md` now requires `scripts/apply-dashboards.sh` to create both default dashboards.
+- First `./scripts/apply-dashboards.sh` attempt failed:
+  - command: `./scripts/apply-dashboards.sh`
+  - error: `Timed out waiting for OpenSearch Dashboards at http://localhost:5601/api/status`
+  - cause: the Docker stack was stopped; no service was listening on port 5601.
+  - fix: started the default stack with `./scripts/up.sh`.
+- `./scripts/up.sh` passed:
+  - started Kafka, MinIO, OpenSearch, OpenSearch Dashboards, Vector ingest, and Vector processor
+  - applied retention
+  - applied dashboards
+  - output included `Creating pivot-style OpenSearch Dashboards visualizations` and `OpenSearch Dashboards saved objects applied`
+- Re-ran `./scripts/apply-dashboards.sh`; it passed with the stack running.
+- API validation:
+  - `logging-pivot-reports` exists as dashboard `Logging Pivot Reports`.
+  - It has 8 panels and 8 visualization references.
+  - Pivot visualization search returned 8 objects.
+  - `pivot-filter-controls` exists and uses `input_control_vis`.
+- One API validation command was malformed:
+  - command piped `curl` into `python3 - <<'PY'`
+  - error: `JSONDecodeError: Expecting value`
+  - cause: the here-doc consumed Python stdin instead of the curl output.
+  - fix: reran with `python3 -c`; corrected API checks passed.
+- First post-dashboard `./scripts/test-pipeline.sh` failed:
+  - command: `rm -f logs/incoming/test-*.jsonl && ./scripts/test-pipeline.sh`
+  - error: `Timed out waiting for trace_id=trace-file-test-1779199952 in logs-local-*`
+  - cause: Vector saw the matching `*.jsonl` path while the one-shot file was still being written through a Docker Desktop/WSL bind mount.
+  - fix: changed `scripts/test-pipeline.sh` to write file-tail test data to `logs/incoming/.test-...tmp`, then rename to `logs/incoming/test-...jsonl`.
+  - updated `docs/03-ingestion-integrations.md` and `docs/10-troubleshooting.md` with the same temp-file then rename guidance.
+- Final validation:
+  - `bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - `rm -f logs/incoming/test-*.jsonl logs/incoming/.test-*.tmp && ./scripts/test-pipeline.sh` passed completely.
+  - Markdown local link check passed.
+  - `docker compose config >/tmp/pivot-default-final-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - API check confirmed `logging-pivot-reports Logging Pivot Reports 8 8`.
+  - API check confirmed `pivot visualizations 8`.
+  - Cleaned generated file-tail test files; `logs/incoming` contains only `.gitkeep`.
+  - `docker.exe compose ps --status running` showed Kafka, MinIO, OpenSearch, OpenSearch Dashboards, Vector ingest, and Vector processor running healthy.
+
+## 2026-05-19 Advanced useful pivot dashboard implementation
+
+- Read `AI-Instructions.md`, `current-status.md`, `output.txt`, current `scripts/apply-dashboards.sh`, current `scripts/test-pipeline.sh`, OpenSearch templates, and Vector processor config before changing files.
+- User reported the generated pivot dashboard was sparse, not readable, and did not provide useful pivot data.
+- Root cause found:
+  - Existing `Logging Pivot Reports` only had a few Data Table panels.
+  - Several panels queried optional fields that the validation pipeline did not generate.
+  - The dashboard lacked summary metrics, charts, trends, heatmaps, and drill-down tables.
+- Replaced `scripts/apply-dashboards.sh` with a Python-backed saved-object generator that creates:
+  - data views
+  - saved searches
+  - metric visualizations
+  - pie visualizations
+  - area trend visualizations
+  - heatmap visualizations
+  - Data Table pivot visualizations
+  - Controls visualization
+  - dashboard payloads
+- `Logging Observability Overview` remains the raw triage dashboard.
+- `Logging Pivot Reports` now contains 23 panels:
+  - `Total Logs`
+  - `Errors and Fatals`
+  - `Invalid Logs`
+  - `Logs With Diagnostics`
+  - `Logs by Severity`
+  - `Logs by Intake Source`
+  - `Pivot Dashboard Filters`
+  - `Log Volume Over Time by Severity`
+  - `Errors Over Time by Service`
+  - `Service x Severity Heatmap`
+  - `Module x Severity Heatmap`
+  - `Service Health Pivot`
+  - `Severity Breakdown Pivot`
+  - `Event Type Pivot`
+  - `Source Intake Pivot`
+  - `Connector Monitoring Pivot`
+  - `Cron Monitoring Pivot`
+  - `Business Investigation Pivot`
+  - `Diagnostics Pivot`
+  - `Invalid Log Quality Pivot`
+  - `Pivot Drilldown - Recent Errors and Fatals`
+  - `Pivot Drilldown - Recent Diagnostics`
+  - `Pivot Drilldown - Recent Invalid Logs`
+- Removed obsolete sparse pivot visualization objects during dashboard apply:
+  - `pivot-filter-controls`
+  - `pivot-errors-service-severity`
+  - `pivot-errors-module-component`
+  - `pivot-connector-failures`
+  - `pivot-cron-failures`
+  - `pivot-business-failures`
+  - `pivot-diagnostic-volume`
+  - `pivot-invalid-logs`
+- Expanded `scripts/test-pipeline.sh` validation fixtures:
+  - connector failure with `connector_name`, `source_system`, `target_system`, `retry_count`, and `error_type`
+  - cron failure with `cron_name`
+  - business failure with `order_number`, `sku`, and `http_status`
+  - invalid severity fixture with `invalid_reason`
+  - existing diagnostic fixture remains
+  - existing HTTP, TCP, syslog, file-tail, and invalid-missing-fields checks remain
+- Updated documentation:
+  - `README.md` now describes summary metrics, pies, trends, heatmaps, detailed pivots, drill-down tables, and expanded filters.
+  - `docs/05-dashboards-reporting-and-customization.md` lists the advanced pivot saved objects.
+  - `docs/12-pivot-style-filterable-reporting.md` documents every default pivot section.
+  - `docs/11-decision-log.md` records use of native metric, pie, area, heatmap, Data Table, Controls, and saved-search panels, reserving Vega for future cases native visuals cannot express.
+- Validation:
+  - `bash -n scripts/apply-dashboards.sh scripts/test-pipeline.sh scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - `./scripts/apply-dashboards.sh` passed.
+  - API confirmed `logging-pivot-reports Logging Pivot Reports 23 23`.
+  - API confirmed 20 `pivot-*` visualization objects.
+  - API confirmed 3 `Pivot Drilldown` saved searches.
+  - API confirmed selected visualization types: metric, pie, area, heatmap, table, and `input_control_vis`.
+  - `rm -f logs/incoming/test-*.jsonl logs/incoming/.test-*.tmp && ./scripts/test-pipeline.sh` passed completely.
+  - OpenSearch aggregation validation confirmed recent data for service/severity, connectors, cron jobs, order/SKU, diagnostics, invalid reasons, and intake sources.
+  - `docker compose config >/tmp/pivot-rich-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh` passed.
+  - Markdown local link check passed.
+  - `./scripts/up.sh` passed and reapplied the advanced pivot dashboard through the normal Docker startup path.
+  - Post-`up.sh` API validation confirmed `Logging Pivot Reports` still has 23 panels and 23 references.
+  - `docker.exe compose ps --status running` showed Kafka, MinIO, OpenSearch, OpenSearch Dashboards, Vector ingest, and Vector processor healthy.
+  - Cleaned generated file-tail test files; `logs/incoming` contains only `.gitkeep`.
+- Historical validation mistakes during this pass:
+  - One `curl | python3 - <<'PY'` command failed with `JSONDecodeError` because the here-doc consumed stdin.
+  - One corrected attempt failed with a Python quoting `SyntaxError`.
+  - Final `python3 -c` API checks passed.

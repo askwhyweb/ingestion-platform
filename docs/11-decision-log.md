@@ -26,11 +26,15 @@ The stress generator is optional and behind a Compose profile because it is a te
 
 ## Real Dashboards Saved Objects
 
-OpenSearch Dashboards saved objects are created through `scripts/apply-dashboards.sh` instead of remaining documentation-only placeholders. The local dashboard uses saved-search panels because they are portable across OpenSearch Dashboards versions and directly expose indexed records needed for triage.
+OpenSearch Dashboards saved objects are created through `scripts/apply-dashboards.sh` instead of remaining documentation-only placeholders. The local overview dashboard uses saved-search panels because they are portable across OpenSearch Dashboards versions and directly expose indexed records needed for triage. The default deployment also creates a pivot-style reporting dashboard for grouped operational summaries.
 
 ## Dashboard and Report Customization
 
 Durable dashboard customization belongs in `scripts/apply-dashboards.sh`. Manual UI edits are acceptable for exploration, but scripted saved objects survive reset, migration, and future Codex sessions.
+
+## Pivot-Style Reporting
+
+Pivot-like reporting is part of the default Dockerized deployment through `Logging Pivot Reports`. It uses native OpenSearch Dashboards metric, pie, area, heatmap, Data Table, Controls, and saved-search panels because they can be applied automatically with `scripts/apply-dashboards.sh` and remain easier to maintain than custom Vega for common reporting. A full Excel-style pivot table remains outside the default scope, but grouped, filterable operational summaries are created by default. Vega should be reserved for visuals that native panels cannot express clearly, such as future Sankey-style flow or matrix reports.
 
 ## Local Retention and Stress Tuning
 
@@ -39,4 +43,3 @@ Local retention is enforced with OpenSearch ISM policies and Kafka topic retenti
 ## File-Tail Fingerprinting
 
 Vector file-tail ingestion uses `device_and_inode` fingerprinting instead of checksum fingerprinting. Same-shaped generated JSONL test files can share the same leading content pattern, causing checksum-based checkpoints to skip a new test file. Device/inode fingerprinting avoids that local test failure mode.
-

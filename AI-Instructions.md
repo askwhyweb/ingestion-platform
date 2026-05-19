@@ -8,7 +8,7 @@ Build a Dockerized centralized logging and observability ingestion platform that
 
 ## Architecture
 
-External systems send logs to `vector-ingest`. `vector-ingest` accepts HTTP, TCP, syslog, and file-tail input, then forwards normalized raw events to Kafka in buffered mode. `vector-processor` consumes from Kafka, validates and enriches logs, indexes searchable records into OpenSearch, and archives compressed records to MinIO. OpenSearch Dashboards provides human search/reporting through real saved objects applied by `scripts/apply-dashboards.sh`. MinIO is the local object storage replacement for GCP Cloud Storage.
+External systems send logs to `vector-ingest`. `vector-ingest` accepts HTTP, TCP, syslog, and file-tail input, then forwards normalized raw events to Kafka in buffered mode. `vector-processor` consumes from Kafka, validates and enriches logs, indexes searchable records into OpenSearch, and archives compressed records to MinIO. OpenSearch Dashboards provides human search/reporting through real saved objects applied by `scripts/apply-dashboards.sh`, including an overview dashboard and a default pivot-style reporting dashboard. MinIO is the local object storage replacement for GCP Cloud Storage.
 
 Required services:
 
@@ -55,6 +55,7 @@ Required services:
 - `docs/09-production-notes.md`
 - `docs/10-troubleshooting.md`
 - `docs/11-decision-log.md`
+- `docs/12-pivot-style-filterable-reporting.md`
 
 ## Ingestion Contract
 
@@ -128,6 +129,7 @@ Validation and normalization rules:
 - Every major change must keep `README.md` and docs aligned.
 - `README.md` is the human-friendly entrypoint for the application. The `/docs` folder must stay numbered and sorted by setup flow, integration flow, dashboard/reporting customization, security, operations, and decisions.
 - OpenSearch Dashboards reporting customization must document supported fields, adding mapped fields, creating multiple reports, script-based saved object customization, and realistic payload examples.
+- `scripts/apply-dashboards.sh` must create the default `Logging Observability Overview` dashboard and the default `Logging Pivot Reports` dashboard.
 
 ## Acceptance Criteria
 
@@ -147,3 +149,4 @@ Validation and normalization rules:
 - `current-status.md` accurately reflects completed and pending work.
 - `output.txt` contains command and test history.
 - `docs/11-decision-log.md` records key decisions.
+- Default pivot-style reporting saved objects are created by `scripts/apply-dashboards.sh`.
