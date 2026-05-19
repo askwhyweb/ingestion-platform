@@ -142,6 +142,7 @@ Open Dashboards at `http://localhost:5601` and use `Logging Observability Overvi
 - Data views for `logs-local-*` and `logs-invalid-*`
 - Saved searches for errors, fatals, connectors, cron jobs, trace lookup, diagnostics, and invalid logs
 - Dashboard `Logging Observability Overview`
+- Dashboard `Logging Pivot Reports`
 
 To reapply after a reset or customization:
 
@@ -152,6 +153,18 @@ To reapply after a reset or customization:
 Customize durable reports in `scripts/apply-dashboards.sh`, not only through manual UI edits. The detailed guide explains how to add fields, create multiple reports, and use sample data for connector, cron, business, diagnostic, and tenant-level reporting:
 
 [docs/05-dashboards-reporting-and-customization.md](docs/05-dashboards-reporting-and-customization.md)
+
+Pivot-style reporting:
+
+- The default deployment now creates a second dashboard named `Logging Pivot Reports`.
+- It includes summary metrics for total logs, errors/fatals, invalid logs, and diagnostic references.
+- It includes donut charts for severity and intake source, time trends by severity/service, and heatmaps for service/module by severity.
+- It includes detailed pivot tables for service health, severity breakdown, event types, source intake, connectors, cron jobs, business investigations, diagnostics, and invalid-log quality.
+- It includes drill-down tables for recent errors/fatals, diagnostics, and invalid logs.
+- It includes dashboard filter controls for common fields such as `environment`, `service`, `module`, `component`, `severity`, `event_type`, `ingest_source`, `connector_name`, and `cron_name`.
+- A full Excel-style pivot table is not native to this setup, but the bundled dashboard provides grouped, filterable pivot-like results by default.
+
+Usage and customization guidance: [docs/12-pivot-style-filterable-reporting.md](docs/12-pivot-style-filterable-reporting.md).
 
 ## Retention and Local Stress Tuning
 
@@ -262,3 +275,4 @@ curl -s "http://localhost:9200/logs-local-*/_search" \
 - [docs/09-production-notes.md](docs/09-production-notes.md)
 - [docs/10-troubleshooting.md](docs/10-troubleshooting.md)
 - [docs/11-decision-log.md](docs/11-decision-log.md)
+- [docs/12-pivot-style-filterable-reporting.md](docs/12-pivot-style-filterable-reporting.md)

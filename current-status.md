@@ -33,6 +33,14 @@ Complete. Platform is built, running, tuned, documented with human-friendly numb
 - Updated `AI-Instructions.md` so the numbered docs structure and dashboard/report customization rules are part of the project continuity standard.
 - Added AGPLv3 license-aware project summary to the top of `README.md` for public repository presentation.
 - Documented how the HTTP bearer token is configured through `VECTOR_HTTP_TOKEN` in `.env`, including local default use, token replacement, restart requirement, and production handling.
+- Added pivot-style filterable reporting documentation, README links, and decision-log guidance for Data Table, TSVB Data Table, VisBuilder Data Table, Controls, Query Workbench, and Vega-based reports.
+- Made `Logging Pivot Reports` part of the default Dockerized deployment through `scripts/apply-dashboards.sh`.
+- Added default pivot-style Data Table visualizations for errors, connectors, cron jobs, business failures, diagnostics, invalid logs, and filter controls.
+- Fixed `scripts/test-pipeline.sh` file-tail test writes to use a temp-file then rename pattern so Docker Desktop/WSL file watchers do not see an empty matching file.
+- Replaced the sparse pivot dashboard with an advanced `Logging Pivot Reports` dashboard containing summary metrics, severity/intake donut charts, time trends, service/module heatmaps, detailed operational pivot tables, and drill-down saved searches.
+- Refactored `scripts/apply-dashboards.sh` into a Python-backed saved-object generator for clearer metric, pie, area, heatmap, table, controls, search, and dashboard payload creation.
+- Expanded `scripts/test-pipeline.sh` with validation fixture logs for connector monitoring, cron monitoring, business investigation, diagnostics, invalid severity, and all ingestion paths.
+- Validated the advanced pivot dashboard saved objects and OpenSearch aggregation paths for service/severity, connectors, cron jobs, order/SKU, diagnostics, invalid reasons, and intake source.
 
 ## Pending Work
 
@@ -41,11 +49,11 @@ Complete. Platform is built, running, tuned, documented with human-friendly numb
 ## Known Issues
 
 - Linux `docker` client socket issue remains in this shell, but all working scripts fall back to `docker.exe compose`.
-- OpenSearch Dashboards saved objects are now real imported objects. They are intentionally simple saved-search panels, with documentation explaining how to add richer searches/reports and durable script-backed customizations.
+- OpenSearch Dashboards saved objects are now real imported objects. The overview dashboard uses saved-search panels, and the default pivot dashboard uses native metric, pie, area, heatmap, Data Table, Controls, and saved-search panels.
 
 ## Last Successful Command
 
-`docker compose config >/tmp/token-doc-compose-config.out && bash -n scripts/*.sh kafka/init-topics.sh && sh -n minio/init-buckets.sh`
+`rm -f logs/incoming/test-*.jsonl logs/incoming/.test-*.tmp && find logs/incoming -maxdepth 1 -type f -printf '%f\n' | sort`
 
 ## Last Failed Command
 
@@ -53,6 +61,10 @@ None active after latest validation. Historical failures fixed or rechecked:
 - `./scripts/test-pipeline.sh` failed inside `scripts/generate-diagnostic.sh` with `GetFileAttributesEx D:\mnt...`; fixed by converting WSL paths for `docker.exe compose cp`.
 - Post-tuning file-tail timeout was fixed by changing Vector file fingerprinting to `device_and_inode`.
 - During documentation validation, one `./scripts/test-pipeline.sh` run timed out waiting for `trace-diagnostic-test-1779007018`; a direct diagnostic send and a full rerun both passed, so this is recorded as a transient miss with no active blocker.
+- `./scripts/apply-dashboards.sh` timed out waiting for OpenSearch Dashboards because the stack was stopped; `./scripts/up.sh` started the default deployment and applied dashboards successfully.
+- One malformed validation command piped `curl` into a Python here-doc and failed with `JSONDecodeError`; corrected API checks passed.
+- `./scripts/test-pipeline.sh` timed out waiting for `trace-file-test-1779199952`; fixed by writing file-tail test data to a non-matching temp file and renaming to `*.jsonl`, then the full pipeline passed.
+- During advanced pivot validation, one malformed `curl | python3 - <<'PY'` command again failed with `JSONDecodeError`, and one `python3 -c` attempt failed with a quoting `SyntaxError`; corrected API checks passed.
 
 ## Next Recommended Action
 
@@ -77,4 +89,7 @@ No required next action. Use `./scripts/down.sh` when finished with the running 
 - Local heap/retention tuning: complete
 - Human-friendly README and numbered docs: complete
 - Dashboard/report customization documentation with sample data: complete
+- Pivot-style filterable reporting documentation: complete
+- Default pivot-style dashboard deployment: complete
+- Advanced useful pivot dashboard: complete
 - Continuity files updated: complete

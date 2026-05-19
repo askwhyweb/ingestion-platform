@@ -9,9 +9,10 @@ Data views:
 - `logs-local-*`
 - `logs-invalid-*`
 
-Dashboard:
+Dashboards:
 
 - `Logging Observability Overview`
+- `Logging Pivot Reports`
 
 Saved searches:
 
@@ -25,10 +26,40 @@ Saved searches:
 - Logs with `diagnostic_ref`
 - Invalid logs
 
+Pivot-style visualizations:
+
+- Total Logs
+- Errors and Fatals
+- Invalid Logs
+- Logs With Diagnostics
+- Logs by Severity
+- Logs by Intake Source
+- Pivot Dashboard Filters
+- Log Volume Over Time by Severity
+- Errors Over Time by Service
+- Service x Severity Heatmap
+- Module x Severity Heatmap
+- Service Health Pivot
+- Severity Breakdown Pivot
+- Event Type Pivot
+- Source Intake Pivot
+- Connector Monitoring Pivot
+- Cron Monitoring Pivot
+- Business Investigation Pivot
+- Diagnostics Pivot
+- Invalid Log Quality Pivot
+
+Pivot drill-down saved searches:
+
+- Pivot Drilldown - Recent Errors and Fatals
+- Pivot Drilldown - Recent Diagnostics
+- Pivot Drilldown - Recent Invalid Logs
+
 Open:
 
 ```text
 http://localhost:5601/app/dashboards#/view/logging-observability-overview
+http://localhost:5601/app/dashboards#/view/logging-pivot-reports
 ```
 
 Reapply:
@@ -36,6 +67,8 @@ Reapply:
 ```bash
 ./scripts/apply-dashboards.sh
 ```
+
+The default bootstrap also creates `Logging Pivot Reports`, an advanced grouped and filterable dashboard backed by metric, pie, area, heatmap, Data Table, Controls, and saved-search panels. See [12-pivot-style-filterable-reporting.md](12-pivot-style-filterable-reporting.md).
 
 ## Supported Reporting Fields
 
@@ -315,4 +348,3 @@ Useful reports:
 - High-volume sources
 - Sources producing diagnostics
 - Sources missing required fields
-
