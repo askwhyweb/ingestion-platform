@@ -1,24 +1,34 @@
-# Centralized Logging and Observability Ingestion Platform
+# Observability Ingestion Platform
 
-A Dockerized centralized logging and observability ingestion platform licensed under the GNU Affero General Public License v3.0 (AGPLv3). It accepts structured logs from external systems over HTTP JSON, TCP JSON lines, syslog, and mounted file-tail inputs, buffers them through Kafka, processes and normalizes them with Vector, indexes searchable logs in OpenSearch, and archives logs and large diagnostics to MinIO-compatible object storage. It includes OpenSearch Dashboards saved objects, retention policies, stress-testing utilities, and production guidance for secure deployment and future GCP Cloud Storage migration.
+A local, Docker Compose based observability pipeline for evaluating log intake, buffering, validation, search, retention and archival. External sources send events over HTTP JSON, TCP JSON lines, syslog or mounted file-tail inputs. Kafka buffers intake; Vector validates, normalises and routes events; OpenSearch indexes valid and invalid records; MinIO-compatible storage keeps archives and large diagnostics.
 
-This repository runs a local Dockerized logging platform for external systems. It accepts structured logs through HTTP, TCP, syslog, and mounted files, buffers them in Kafka, processes them with Vector, indexes searchable records in OpenSearch, and stores compressed archive/diagnostic objects in MinIO.
+This is an integration and operational evaluation environment. It is not presented as a production deployment. The repository includes dashboards, retention configuration, diagnostics, stress tooling and deployment guidance. It is licensed under AGPL-3.0.
 
-The platform is designed for integration testing and local operations work. It does not depend on fixed sample applications as the main log source. The stress generator is optional and runs only when you ask for it.
+## Architecture
 
-## What Runs
+```mermaid
+graph LR
+  S[External log sources] --> I[Vector intake]
+  I --> K[Kafka logs.raw]
+  K --> P[Vector validation and routing]
+  P --> O[OpenSearch valid and invalid indices]
+  P --> M[MinIO archives and diagnostics]
+  O --> D[OpenSearch Dashboards]
+```
 
-| Service | Purpose | Local URL/Port |
-| --- | --- | --- |
-| `vector-ingest` | HTTP, TCP, syslog, and file-tail intake | `8080`, `9002`, `5514` |
-| `kafka` | Buffered log handoff and replay | `19092` for host debug |
-| `vector-processor` | Validation, normalization, enrichment, routing | internal |
-| `opensearch` | Searchable valid and invalid log indices | `http://localhost:9200` |
-| `opensearch-dashboards` | Human search, saved searches, dashboards | `http://localhost:5601` |
-| `minio` | Local object storage for archives and diagnostics | `http://localhost:9000`, console `9001` |
-| `log-stress-tool` | Optional test utility | Compose `stress` profile only |
+The intake and processing stages are separated by Kafka so short downstream interruptions do not immediately stop acceptance. Valid and invalid events have distinct search and archive paths. Large diagnostic payloads are stored as objects; searchable events retain references and size metadata rather than embedding those payloads in OpenSearch.
 
-## Quick Start
+## Design Decisions and Trade-offs
+
+- **Kafka between intake and sinks:** supports buffering and replay during downstream recovery, with local topic retention and partition settings documented in the configuration. It also adds another service to operate.
+- **Vector for processing:** one component handles source intake, schema checks, normalisation and routing. Pipeline changes need validation against both valid and invalid paths.
+- **OpenSearch for investigation:** searchable indices and bundled dashboards support trace, service, connector and error queries. Search retention is finite and configured separately from archives.
+- **Object storage for archives and diagnostics:** keeps large payloads out of the search index. MinIO is a local stand-in; durable remote storage, access control and lifecycle policy need environment-specific design.
+- **Explicit local boundary:** Compose defaults and localhost endpoints support development only. They are not a secure production configuration.
+
+## Run Locally
+
+Copy the example configuration, review every local value, then start and exercise the stack:
 
 ```bash
 cp .env.example .env
@@ -26,253 +36,10 @@ cp .env.example .env
 ./scripts/test-pipeline.sh
 ```
 
-`./scripts/up.sh` starts the stack, applies OpenSearch retention/index templates, and creates OpenSearch Dashboards saved objects. Scripts prefer `docker compose`, then `docker.exe compose`, then `docker-compose`.
+The test script covers HTTP, TCP, syslog and file-tail intake, invalid-event routing, diagnostic storage, search and archive paths. Useful checks include `docker compose config`, shell syntax validation, retention setup and dashboard provisioning. See [docs/02-setup.md](docs/02-setup.md) and [docs/10-troubleshooting.md](docs/10-troubleshooting.md).
 
-Stop the stack:
+## Operations and Security
 
-```bash
-./scripts/down.sh
-```
+Local defaults are for development. Before connecting external systems, define trusted sources, authentication, TLS termination, payload and rate limits, firewall rules, retention, storage durability, monitoring and incident ownership. Keep OpenSearch, Dashboards, Kafka and object storage private. Replace local credentials and tokens; never reuse them in a shared environment.
 
-Stop and remove volumes only when you want to reset local data:
-
-```bash
-./scripts/down.sh --volumes
-```
-
-## Validation Commands
-
-```bash
-docker compose config
-bash -n scripts/*.sh kafka/init-topics.sh
-sh -n minio/init-buckets.sh
-./scripts/apply-retention.sh
-./scripts/apply-dashboards.sh
-./scripts/test-pipeline.sh
-```
-
-`./scripts/test-pipeline.sh` verifies HTTP, TCP, syslog, file-tail, invalid-log routing, diagnostic object storage, OpenSearch search, and MinIO archive paths.
-
-## Which Integration Should I Use?
-
-| Source type | Use when | How |
-| --- | --- | --- |
-| HTTP JSON | An app can POST structured events | `POST http://localhost:8080/logs` with bearer token |
-| TCP JSON lines | A service can stream one JSON event per line | Send to `localhost:9002` |
-| Syslog | System, network, or legacy tooling already emits syslog | Send TCP/UDP to `localhost:5514` |
-| File tail | Batch jobs, mounted logs, Docker JSON log files | Write JSONL into `./logs/incoming/*.jsonl` |
-| Stdout | Apps only write to stdout | Pipe stdout to TCP, tail Docker log files, or run a local Vector agent |
-| Diagnostics | Large payloads must not be indexed | Store compressed object in MinIO/GCS and log `diagnostic_ref` |
-
-Stdout is not a separate central endpoint. It is supported through integration patterns: Docker log file tailing, piping to TCP/HTTP, or a host/sidecar Vector agent.
-
-## Send Logs
-
-### HTTP Bearer Token
-
-The local HTTP ingestion token comes from `VECTOR_HTTP_TOKEN` in `.env`. When you first copy `.env.example` to `.env`, the default value is:
-
-```bash
-VECTOR_HTTP_TOKEN=change-me-local-token
-```
-
-You do not obtain this token from Vector, OpenSearch, or Docker. For local testing, use the value in `.env` as the bearer token. Before sharing the endpoint with other systems, replace it with a long random value and restart `vector-ingest`:
-
-```bash
-openssl rand -hex 32
-```
-
-Then set the generated value in `.env`:
-
-```bash
-VECTOR_HTTP_TOKEN=<generated-token>
-```
-
-Clients must send it in the HTTP header as:
-
-```text
-Authorization: Bearer <VECTOR_HTTP_TOKEN value>
-```
-
-HTTP JSON example:
-
-```bash
-curl -X POST http://localhost:8080/logs \
-  -H "Authorization: Bearer change-me-local-token" \
-  -H "Content-Type: application/json" \
-  -d '{"@timestamp":"2026-05-17T10:00:00Z","environment":"local","service":"checkout","module":"api","component":"orders","severity":"info","event_type":"order_created","message":"Order created","trace_id":"trace-123","order_number":"ORD-1001"}'
-```
-
-Script helpers:
-
-```bash
-./scripts/send-log-http.sh
-./scripts/send-log-tcp.sh
-./scripts/send-log-syslog.sh
-```
-
-File-tail input watches `./logs/incoming/*.jsonl`. Add one JSON object per line.
-
-## Logging Contract
-
-Required fields:
-
-- `@timestamp`
-- `environment`
-- `service`
-- `module`
-- `component`
-- `severity`
-- `event_type`
-- `message`
-- `trace_id`
-
-Common optional fields include `error_type`, `order_number`, `sku`, `cron_name`, `connector_name`, `retry_count`, `http_status`, `source_system`, `target_system`, `diagnostic_ref`, and `diagnostic_size_bytes`.
-
-Missing required fields are routed to `logs-invalid-*` and archived in `invalid-logs-local`. Severity is normalized to `debug`, `info`, `warn`, `error`, or `fatal`.
-
-Full field guidance: [docs/04-logging-contract-and-fields.md](docs/04-logging-contract-and-fields.md).
-
-## Dashboards and Reports
-
-Open Dashboards at `http://localhost:5601` and use `Logging Observability Overview`.
-
-`./scripts/apply-dashboards.sh` creates:
-
-- Data views for `logs-local-*` and `logs-invalid-*`
-- Saved searches for errors, fatals, connectors, cron jobs, trace lookup, diagnostics, and invalid logs
-- Dashboard `Logging Observability Overview`
-- Dashboard `Logging Pivot Reports`
-
-To reapply after a reset or customization:
-
-```bash
-./scripts/apply-dashboards.sh
-```
-
-Customize durable reports in `scripts/apply-dashboards.sh`, not only through manual UI edits. The detailed guide explains how to add fields, create multiple reports, and use sample data for connector, cron, business, diagnostic, and tenant-level reporting:
-
-[docs/05-dashboards-reporting-and-customization.md](docs/05-dashboards-reporting-and-customization.md)
-
-Pivot-style reporting:
-
-- The default deployment now creates a second dashboard named `Logging Pivot Reports`.
-- It includes summary metrics for total logs, errors/fatals, invalid logs, and diagnostic references.
-- It includes donut charts for severity and intake source, time trends by severity/service, and heatmaps for service/module by severity.
-- It includes detailed pivot tables for service health, severity breakdown, event types, source intake, connectors, cron jobs, business investigations, diagnostics, and invalid-log quality.
-- It includes drill-down tables for recent errors/fatals, diagnostics, and invalid logs.
-- It includes dashboard filter controls for common fields such as `environment`, `service`, `module`, `component`, `severity`, `event_type`, `ingest_source`, `connector_name`, and `cron_name`.
-- A full Excel-style pivot table is not native to this setup, but the bundled dashboard provides grouped, filterable pivot-like results by default.
-
-Usage and customization guidance: [docs/12-pivot-style-filterable-reporting.md](docs/12-pivot-style-filterable-reporting.md).
-
-## Retention and Local Stress Tuning
-
-`./scripts/apply-retention.sh` applies OpenSearch ISM policies and index templates.
-
-Defaults:
-
-- OpenSearch heap: `-Xms1g -Xmx1g`
-- OpenSearch memory limit: `2g`
-- Kafka topic partitions: `6`
-- Kafka topic retention: `604800000` ms
-- Kafka segment size: `268435456` bytes
-- OpenSearch index refresh interval: `5s`
-- Valid-log retention: 14 days, configurable with `OPENSEARCH_LOGS_RETENTION_DAYS`
-- Invalid-log retention: 7 days, configurable with `OPENSEARCH_INVALID_RETENTION_DAYS`
-
-## Stress Testing
-
-The stress generator is disabled by default.
-
-```bash
-./scripts/generate-load.sh --rate 100 --duration 30
-./scripts/generate-load.sh --rate 1000 --duration 60 --services checkout,orders --modules api,worker
-./scripts/generate-load.sh --rate 5000 --duration 60 --message-size 512 --diagnostics true
-docker compose --profile stress run --rm -e STRESS_RATE=1000 -e STRESS_DURATION=60 log-stress-tool
-```
-
-More detail: [docs/08-stress-testing.md](docs/08-stress-testing.md).
-
-## Diagnostics
-
-Large diagnostics should be compressed and stored in object storage. OpenSearch should index only `diagnostic_ref` and `diagnostic_size_bytes`.
-
-```bash
-./scripts/generate-diagnostic.sh
-```
-
-Vector removes inline `diagnostic_payload` before indexing to avoid storing MB-level payloads in OpenSearch.
-
-## Integration Intake Checklist
-
-Use this before connecting a new source:
-
-- Owner/team and escalation contact
-- Source system and environment
-- Source IP/CIDR or network path
-- Chosen intake type: HTTP, TCP, syslog, file-tail, stdout pattern
-- `service`, `module`, `component`, and `event_type` naming
-- Expected records/sec, message size, severity mix
-- Optional fields needed for reports, such as `connector_name`, `cron_name`, `order_number`, `sku`, or custom fields
-- Diagnostic strategy and maximum diagnostic size
-- Retention and dashboard/reporting requirements
-- Auth token, TLS/API gateway, rate limit, and firewall requirements
-
-## Security and Firewall
-
-Local defaults are for development. Do not expose ingestion publicly without protection.
-
-Production controls:
-
-- HTTPS termination
-- API key or token validation
-- Source identity
-- Payload limits
-- Rate limits
-- Firewall rules for trusted source ranges only
-- Private OpenSearch, Dashboards, Kafka, and MinIO access
-- Secret rotation and audit logging
-
-Full guide: [docs/06-security-firewall-and-intake.md](docs/06-security-firewall-and-intake.md).
-
-## OpenSearch Queries
-
-Find a trace:
-
-```bash
-curl -s "http://localhost:9200/logs-local-*/_search" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":{"term":{"trace_id":"trace-123"}}}'
-```
-
-Find errors by service:
-
-```bash
-curl -s "http://localhost:9200/logs-local-*/_search" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":{"bool":{"filter":[{"term":{"severity":"error"}},{"term":{"service":"checkout"}}]}}}'
-```
-
-Find diagnostics:
-
-```bash
-curl -s "http://localhost:9200/logs-local-*/_search" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":{"exists":{"field":"diagnostic_ref"}}}'
-```
-
-## Documentation
-
-- [docs/01-architecture.md](docs/01-architecture.md)
-- [docs/02-setup.md](docs/02-setup.md)
-- [docs/03-ingestion-integrations.md](docs/03-ingestion-integrations.md)
-- [docs/04-logging-contract-and-fields.md](docs/04-logging-contract-and-fields.md)
-- [docs/05-dashboards-reporting-and-customization.md](docs/05-dashboards-reporting-and-customization.md)
-- [docs/06-security-firewall-and-intake.md](docs/06-security-firewall-and-intake.md)
-- [docs/07-retention-storage-and-diagnostics.md](docs/07-retention-storage-and-diagnostics.md)
-- [docs/08-stress-testing.md](docs/08-stress-testing.md)
-- [docs/09-production-notes.md](docs/09-production-notes.md)
-- [docs/10-troubleshooting.md](docs/10-troubleshooting.md)
-- [docs/11-decision-log.md](docs/11-decision-log.md)
-- [docs/12-pivot-style-filterable-reporting.md](docs/12-pivot-style-filterable-reporting.md)
+The documentation covers [intake contracts](docs/04-logging-contract-and-fields.md), [security and firewall controls](docs/06-security-firewall-and-intake.md), [retention and diagnostics](docs/07-retention-storage-and-diagnostics.md), [stress testing](docs/08-stress-testing.md), [production considerations](docs/09-production-notes.md) and [design decisions](docs/11-decision-log.md).
